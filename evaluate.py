@@ -277,6 +277,7 @@ def evaluate_main(
     ground_truth_midi_dir,
     enable_instrument_eval=False,
     first_n=None,
+    return_scores=False
 ):
     if dataset_name == "Slakh":
         dir = sorted(glob.glob(f"{test_midi_dir}/*/mix.mid"))
@@ -311,6 +312,7 @@ def evaluate_main(
             )
             results.update(dic)
         
+        results['Track'] = fname1.split("/")[-2]
         return results
 
 
@@ -330,8 +332,7 @@ def evaluate_main(
                 print(str(e))
                 traceback.print_exc()
                 
-
-    mean_scores = {k: np.mean(v) for k, v in scores.items() if k != "F1 by program"}
+    mean_scores = {k: np.mean(v) for k, v in scores.items() if k != "F1 by program" and k != "Track"}
     
     if enable_instrument_eval:
         print("====")
@@ -365,27 +366,60 @@ def evaluate_main(
             elif key * 8 in program_f1_dict:
                 print("{}: {:.4}".format(d[key], program_f1_dict[key * 8]))
     
+    if return_scores:
+        return mean_scores, scores
     return mean_scores
 
 
 if __name__ == "__main__":
     lst = [ 
+        # # baseline
+        # "midis/slakh_baseline/",
+
+        # # scratch
         # "outputs/exp_segmemV2_prev_context=0/slakh_mt3_official/",
         # "outputs/exp_segmemV2_prev_context=32/slakh_mt3_official/",
         # "outputs/exp_segmemV2_prev_context=64/slakh_mt3_official/",
         # "outputs/exp_segmemV2_prev_context=64_prevaug_frame=3/slakh_mt3_official/",
-        "outputs/exp_segmemV2_prev_context=64_prevaug_frame=8/slakh_mt3_official/",
+        # "outputs/exp_segmemV2_prev_context=64_prevaug_frame=8/slakh_mt3_official/",
+
+        # continual
+        # "outputs/exp_segmemV2_prev_context=0_MT3_1e-5_ep100_random/slakh_mt3_official/",
+        # "outputs/exp_segmemV2_prev_context=64_prevaug_frame=3_MT3_1e-5_ep100_random/slakh_mt3_official/",
+
+        # generic
+        "outputs/exp_van_mt3/",
+        "outputs/exp_van_mrmt3/",
     ]
     for k in lst:
         print(k)
-        scores = evaluate_main(
+        mean_scores, scores = evaluate_main(
             "Slakh",
             test_midi_dir=k,
             ground_truth_midi_dir="/data/slakh2100_flac_redux/test/",
-            first_n=1
+            # first_n=2,
+            return_scores=True
         )
 
-        for key in sorted(list(scores)):
+        for key in sorted(list(mean_scores)):
             if "F1" in key:
-                print("{}: {:.4}".format(key, scores[key]))
+                print("{}: {:.4}".format(key, mean_scores[key]))
         print("====")
+
+        new_dic = {}
+        track_lst = scores["Track"]
+        onset_f1_flat_lst = scores["Onset + program F1 (flat)"]
+        onset_f1_full_lst = scores["Onset + program F1 (full)"]
+        onset_f1_midi_class_lst = scores["Onset + program F1 (midi_class)"]
+
+        for i, track in enumerate(track_lst):
+            new_dic[track] = {
+                "Onset + program F1 (flat)": onset_f1_flat_lst[i],
+                "Onset + program F1 (full)": onset_f1_full_lst[i],
+                "Onset + program F1 (midi_class)": onset_f1_midi_class_lst[i]
+            }
+        
+        import json
+        new_fname = k.replace("/", "_")
+        with open(f"f1_by_track_{new_fname[:-1]}.json", "w") as f:
+            json.dump(new_dic, f, indent=4)

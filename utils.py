@@ -61,6 +61,19 @@ def get_cosine_schedule_with_warmup(
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
 
+def get_warmup(
+    optimizer, 
+    num_warmup_steps: int, 
+    last_epoch: int = -1,
+):
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            lr = float(current_step) / float(max(1, num_warmup_steps))
+            return lr
+        return 1
+    return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+
 def get_mt3_optimizer(
     optimizer,
     num_warmup_steps: int,

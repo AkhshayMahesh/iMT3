@@ -1,11 +1,11 @@
-from torch.optim import AdamW
+from torch.optim import AdamW, Adafactor
 from omegaconf import OmegaConf
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 from transformers import T5Config
 from models.t5 import T5ForConditionalGeneration
-from utils import get_cosine_schedule_with_warmup
+from utils import get_cosine_schedule_with_warmup, get_warmup
 from tasks.mt3_base import MT3Base
 
 
@@ -33,6 +33,10 @@ class MT3Net(MT3Base):
             loss = loss_fct(
                 lm_logits.view(-1, lm_logits.size(-1)), targets.view(-1)
             )
+        
+        # for test
+        # loss = torch.zeros(1, device=self.device, requires_grad=True)
+        
         self.log('train_loss', loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True)
         return loss
 
@@ -46,21 +50,35 @@ class MT3Net(MT3Base):
             loss = loss_fct(
                 lm_logits.view(-1, lm_logits.size(-1)), targets.view(-1)
             )
+        
+        # for test
+        # loss = torch.zeros(1, device=self.device)
+        
         self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True)
         
         # no need to use it in this stage
         # return loss
 
     def configure_optimizers(self):
-        optimizer = AdamW(self.model.parameters(), self.optim_cfg.lr)
+        # optimizer = AdamW(self.model.parameters(), self.optim_cfg.lr)
+        optimizer = Adafactor(self.model.parameters(), lr=self.optim_cfg.lr)
         warmup_step = int(self.optim_cfg.warmup_steps)
         print('warmup step: ', warmup_step)
+        # schedule = {
+        #     'scheduler': get_cosine_schedule_with_warmup(
+        #         optimizer=optimizer, 
+        #         num_warmup_steps=warmup_step, 
+        #         num_training_steps=self.optim_cfg.num_steps_per_epoch * self.optim_cfg.num_epochs,
+        #         min_lr=self.optim_cfg.min_lr
+        #     ),
+        #     'interval': 'step',
+        #     'frequency': 1
+        # }
+        # HACK: this is a hack
         schedule = {
-            'scheduler': get_cosine_schedule_with_warmup(
+            'scheduler': get_warmup(
                 optimizer=optimizer, 
                 num_warmup_steps=warmup_step, 
-                num_training_steps=self.optim_cfg.num_steps_per_epoch * self.optim_cfg.num_epochs,
-                min_lr=self.optim_cfg.min_lr
             ),
             'interval': 'step',
             'frequency': 1

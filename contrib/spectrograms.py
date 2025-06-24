@@ -27,7 +27,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # for TF spectrogram
-from ddsp import spectral_ops
+# from ddsp import spectral_ops
 import tensorflow as tf
 tf.config.set_visible_devices([], 'GPU')
 
@@ -118,6 +118,7 @@ def compute_spectrogram(
         # lazy load
         # print("spec TF")
         overlap = 1 - (spectrogram_config.hop_width / FFT_SIZE)
+        from ddsp import spectral_ops
         return spectral_ops.compute_logmel(
             samples,
             bins=spectrogram_config.num_mel_bins,
