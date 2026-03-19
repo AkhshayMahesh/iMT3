@@ -69,8 +69,22 @@ class SlakhDataset(Dataset):
         for a_f in audio_files:
             inst_path = a_f.replace(self.audio_filename, self.inst_filename)
             midi_path = a_f.replace(self.audio_filename, self.midi_folder)
-            with open(inst_path) as f:
-                inst_names = json.load(f)
+            try:
+                with open(inst_path) as f:
+                    inst_names = json.load(f)
+            except FileNotFoundError:
+                # babySlakh compatibility: if inst_names.json is missing, derive it from metadata.yaml
+                # (same logic as tools/prepare_baby_slakh.py)
+                try:
+                    from pathlib import Path
+                    from tools.prepare_baby_slakh import _read_metadata_inst_map  # type: ignore
+
+                    meta_path = Path(a_f).parent / "metadata.yaml"
+                    inst_names = _read_metadata_inst_map(meta_path)
+                except Exception as e:
+                    raise FileNotFoundError(
+                        f"Missing {inst_path} and failed to derive instrument mapping from metadata.yaml next to {a_f}."
+                    ) from e
             df.append({'inst_names': inst_names, 'audio_path': a_f, 'midi_path': midi_path})
         assert len(df) > 0
         print('total file:', len(df))
@@ -98,13 +112,17 @@ class SlakhDataset(Dataset):
         return frames, times
 
     def _parse_midi(self, path, instrument_dict: Dict[str, str]):
+        import os
         note_seqs = []
+        valid_inst_names = []
 
-        for filename in instrument_dict.keys():
+        for filename, inst_name in instrument_dict.items():
             # this can be pretty_midi.PrettyMIDI() obj / string path to midi
             midi_path = f'{path}/{filename}.mid'
-            note_seqs.append(note_seq.midi_file_to_note_sequence(midi_path))
-        return note_seqs, instrument_dict.values()
+            if os.path.exists(midi_path):
+                note_seqs.append(note_seq.midi_file_to_note_sequence(midi_path))
+                valid_inst_names.append(inst_name)
+        return note_seqs, valid_inst_names
 
     def _tokenize(self, tracks: List[note_seq.NoteSequence], samples: np.ndarray, inst_names: List[str], example_id: Optional[str] = None):
 

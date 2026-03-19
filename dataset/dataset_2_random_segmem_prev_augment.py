@@ -126,8 +126,8 @@ def collate_fn(lst):
     inputs = torch.cat([k[0] for k in lst])
     targets = torch.cat([k[1] for k in lst])
     targets_prev = torch.cat([k[2] for k in lst])
-
-    return inputs, targets, targets_prev
+    cte_family_id = torch.cat([k[3] for k in lst])
+    return inputs, targets, targets_prev, cte_family_id
 
 if __name__ == '__main__':
     dataset = SlakhDatasetWithPrevSegmemAugment(

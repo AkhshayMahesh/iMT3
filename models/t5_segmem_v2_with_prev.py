@@ -26,6 +26,8 @@ import torch
 from einops import rearrange
 from tqdm import tqdm
 
+from models.contrastive_timbre_embedding import ContrastiveTimbreEmbedding
+
 
 logger = logging.get_logger(__name__)
 
@@ -56,6 +58,10 @@ class T5SegMemV2WithPrev(T5SegMemV2):
             segmem_num_layers=segmem_num_layers,
             segmem_length=segmem_length,
         )
+        d_model = getattr(config, "d_model", None) or getattr(self.config, "d_model")
+        cte_proj_dim = int(getattr(config, "cte_proj_dim", 64))
+        cte_temperature = float(getattr(config, "cte_temperature", 0.07))
+        self.cte = ContrastiveTimbreEmbedding(in_dim=d_model, proj_dim=cte_proj_dim, temperature=cte_temperature)
     
     def get_model_outputs(
         self,
@@ -172,6 +178,7 @@ class T5SegMemV2WithPrev(T5SegMemV2):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         num_insts: Optional[torch.LongTensor] = None,
+        cte_family_id: Optional[torch.LongTensor] = None,
     ) -> Union[Tuple[torch.FloatTensor], Seq2SeqLMOutput]:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
@@ -221,7 +228,12 @@ class T5SegMemV2WithPrev(T5SegMemV2):
             return_dict=return_dict,
         )
 
-        return lm_logits
+        if cte_family_id is None:
+            return lm_logits
+
+        enc_last_hidden = encoder_outputs[0]  # (B, T, D)
+        _, loss_cte = self.cte(enc_last_hidden, attention_mask=attention_mask, family_id=cte_family_id, return_loss=True)
+        return lm_logits, loss_cte
 
     def generate(self, inputs, max_length=1024, output_hidden_states=False, **kwargs):
         batch_size = inputs.shape[0]

@@ -1,0 +1,6 @@
+name: mrmt3
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip

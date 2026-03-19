@@ -8,7 +8,7 @@ path:
 
 event_length: 1024
 mel_length: 256
-num_rows_per_batch: 12
+num_rows_per_batch: 4
 split_frame_length: 256
 dataset_is_deterministic: False
 dataset_is_randomize_tokens: True

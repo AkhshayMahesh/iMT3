@@ -27,7 +27,6 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # for TF spectrogram
-from ddsp import spectral_ops
 import tensorflow as tf
 tf.config.set_visible_devices([], 'GPU')
 
@@ -112,6 +111,14 @@ def compute_spectrogram(
     and only keep `spectral_ops.compute_logmel` for evaluation purposes.
     """
     if spectrogram_config.use_tf_spectral_ops:
+        try:
+            from ddsp import spectral_ops  # type: ignore
+        except ModuleNotFoundError as e:
+            raise ModuleNotFoundError(
+                "Optional dependency 'ddsp' is required when "
+                "SpectrogramConfig.use_tf_spectral_ops=True. "
+                "Install it separately (see README)."
+            ) from e
         # NOTE: we only keep this for evaluating existing models
         # This is because I find even with an equivalent PyTorch / librosa implementation 
         # that gives close-enough results (melspec MAE ~ 2e-3), the model output is still affected badly.

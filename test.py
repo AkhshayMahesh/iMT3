@@ -104,10 +104,13 @@ def main(cfg):
     else:
         # load weights for nn.Module
         model = pl.model
+        # PyTorch 2.6+ defaults torch.load(weights_only=True) which breaks older
+        # checkpoints saved as full pickles. These checkpoints are expected here.
+        state = torch.load(cfg.path, weights_only=False)
         if cfg.eval.load_weights_strict is not None:
-            model.load_state_dict(torch.load(cfg.path), strict=cfg.eval.load_weights_strict)
+            model.load_state_dict(state, strict=cfg.eval.load_weights_strict)
         else:
-            model.load_state_dict(torch.load(cfg.path), strict=False)
+            model.load_state_dict(state, strict=False)
 
     model.eval()
     # if torch.cuda.is_available():

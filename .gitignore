@@ -4,3 +4,9 @@ main.py
 results/
 scripts/eval_nsynth/
 pretrained/
+.conda/
+.cursor/
+__pycache__/
+babySlakh/
+outputs/
+data/

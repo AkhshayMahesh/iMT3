@@ -3,6 +3,10 @@ from torch.utils.data import DataLoader
 import random
 import numpy as np
 from dataset.dataset_2_random import SlakhDataset
+from pathlib import Path
+from typing import Dict, List, Optional, Set
+
+from models.contrastive_timbre_embedding import _load_slakh_metadata
 
 MIN_LOG_MEL = -12
 MAX_LOG_MEL = 5
@@ -46,6 +50,40 @@ class SlakhDatasetWithPrevSegmem(SlakhDataset):
             is_deterministic=is_deterministic,
             use_tf_spectral_ops=use_tf_spectral_ops
         )
+        self._track_family_cache: Dict[str, List[int]] = {}
+
+    def _track_families_from_metadata(self, audio_path: str) -> List[int]:
+        """
+        Returns sorted unique family ids present in the track.
+        - GM family: program_num // 8   (0..15)
+        - Drums: family 16
+        """
+        if audio_path in self._track_family_cache:
+            return self._track_family_cache[audio_path]
+
+        # audio path is .../mix_16k.wav or .../mix.flac; metadata.yaml is adjacent in track dir
+        track_dir = Path(audio_path).parent
+        meta_path = track_dir / "metadata.yaml"
+        families: Set[int] = set()
+        try:
+            meta = _load_slakh_metadata(str(meta_path))
+            stems = meta.get("stems", {}) or {}
+            for _, stem_meta in stems.items():
+                stem_meta = stem_meta or {}
+                if bool(stem_meta.get("is_drum", False)):
+                    families.add(16)
+                    continue
+                program_num = stem_meta.get("program_num", None)
+                if program_num is None:
+                    continue
+                families.add(int(program_num) // 8)
+        except Exception:
+            # If metadata is missing/unreadable, fall back to a dummy label.
+            families = {0}
+
+        out = sorted(families) if families else [0]
+        self._track_family_cache[audio_path] = out
+        return out
 
     def _extract_target_sequence_with_indices(self, features, state_events_end_token=None):
         """Extract target sequence corresponding to audio token segment."""
@@ -157,7 +195,8 @@ class SlakhDatasetWithPrevSegmem(SlakhDataset):
         return new_row
     
     def __getitem__(self, idx):
-        ns, audio, inst_names = self._preprocess_inputs(self.df[idx])
+        df_row = self.df[idx]
+        ns, audio, inst_names = self._preprocess_inputs(df_row)
         
         row = self._tokenize(ns, audio, inst_names)
 
@@ -165,13 +204,15 @@ class SlakhDatasetWithPrevSegmem(SlakhDataset):
         # use `length = self.mel_length` in `_split_frame`:
         rows = self._split_frame(row, length=self.split_frame_length)
         
-        inputs, targets, targets_prev, frame_times, num_insts = [], [], [], [], []
+        inputs, targets, targets_prev, cte_family_ids = [], [], [], []
         if len(rows) > self.num_rows_per_batch:
             if self.is_deterministic:
                 start_idx = 2
             else:
                 start_idx = random.randint(0, len(rows) - self.num_rows_per_batch)
             rows = rows[start_idx : start_idx + self.num_rows_per_batch]
+
+        track_families = self._track_families_from_metadata(df_row["audio_path"])
         
         for j, row in enumerate(rows):
             row = self._random_chunk(row)
@@ -197,16 +238,26 @@ class SlakhDatasetWithPrevSegmem(SlakhDataset):
             inputs.append(row["inputs"])
             targets.append(row["targets"])
             targets_prev.append(row["targets_prev"]) 
+            if self.is_deterministic:
+                fam = track_families[0]
+            else:
+                fam = random.choice(track_families)
+            cte_family_ids.append(fam)
 
-        return torch.stack(inputs), torch.stack(targets), torch.stack(targets_prev)
+        return (
+            torch.stack(inputs),
+            torch.stack(targets),
+            torch.stack(targets_prev),
+            torch.tensor(cte_family_ids, dtype=torch.long),
+        )
 
 
 def collate_fn(lst):
     inputs = torch.cat([k[0] for k in lst])
     targets = torch.cat([k[1] for k in lst])
     targets_prev = torch.cat([k[2] for k in lst])
-
-    return inputs, targets, targets_prev
+    cte_family_id = torch.cat([k[3] for k in lst])
+    return inputs, targets, targets_prev, cte_family_id
 
 if __name__ == '__main__':
     dataset = SlakhDatasetWithPrevSegmem(

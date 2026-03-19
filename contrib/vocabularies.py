@@ -21,8 +21,10 @@ from typing import Callable, Optional, Sequence
 from contrib import event_codec
 
 import note_seq
-import seqio
-import t5.data
+
+# Avoid depending on seqio/t5/tfds at import-time. This repo only needs a
+# minimal vocabulary implementation for shifting token ids by special tokens.
+DEFAULT_EXTRA_IDS = 100
 
 
 DECODED_EOS_ID = -1
@@ -81,6 +83,7 @@ def drop_programs(tokens, codec: event_codec.Codec):
 
 def programs_to_midi_classes(tokens, codec):
   """Modifies program events to be the first program in the MIDI class."""
+  import tensorflow as tf
   min_program_id, max_program_id = codec.event_type_range('program')
   is_program = (tokens >= min_program_id) & (tokens <= max_program_id)
   return tf.where(
@@ -139,19 +142,22 @@ def build_codec(vocab_config: VocabularyConfig):
       event_ranges=event_ranges)
 
 
-def vocabulary_from_codec(codec: event_codec.Codec) -> seqio.Vocabulary:
-  return GenericTokenVocabulary(
-      codec.num_classes, extra_ids=t5.data.DEFAULT_EXTRA_IDS)
+def vocabulary_from_codec(codec: event_codec.Codec):
+  return GenericTokenVocabulary(codec.num_classes, extra_ids=DEFAULT_EXTRA_IDS)
 
 
-class GenericTokenVocabulary(seqio.Vocabulary):
+class GenericTokenVocabulary:
   """Vocabulary with pass-through encoding of tokens."""
 
   def __init__(self, regular_ids: int, extra_ids: int = 0):
     # The special tokens: 0=PAD, 1=EOS, and 2=UNK
     self._num_special_tokens = 3
     self._num_regular_tokens = regular_ids
-    super().__init__(extra_ids=extra_ids)
+    self._extra_ids = int(extra_ids)
+
+  @property
+  def extra_ids(self) -> int:
+    return self._extra_ids
 
   @property
   def eos_id(self) -> Optional[int]:
@@ -169,6 +175,10 @@ class GenericTokenVocabulary(seqio.Vocabulary):
       an integer, the vocabulary size
     """
     return self._num_special_tokens + self._num_regular_tokens
+
+  @property
+  def vocab_size(self) -> int:
+    return self._base_vocab_size + self._extra_ids
 
   def _encode(self, token_ids: Sequence[int]) -> Sequence[int]:
     """Encode a list of tokens ids as a list of integers.

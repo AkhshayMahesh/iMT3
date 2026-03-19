@@ -23,35 +23,55 @@ class MT3NetSegMemV2WithPrev(MT3Base):
         return self.model.forward(*args, **kwargs)
 
     def training_step(self, batch, batch_idx):
-        inputs, targets, targets_prev = batch
-        lm_logits = self.forward(
-            inputs=inputs, 
-            labels=targets, 
-            targets_prev=targets_prev
-        )
+        if len(batch) == 4:
+            inputs, targets, targets_prev, cte_family_id = batch
+        else:
+            inputs, targets, targets_prev = batch
+            cte_family_id = None
+
+        out = self.forward(inputs=inputs, labels=targets, targets_prev=targets_prev, cte_family_id=cte_family_id)
+        if isinstance(out, tuple):
+            lm_logits, loss_cte = out
+        else:
+            lm_logits, loss_cte = out, None
 
         if targets is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
             loss = loss_fct(
                 lm_logits.view(-1, lm_logits.size(-1)), targets.view(-1)
             )
+        if loss_cte is not None:
+            lam = float(getattr(self.config, "cte_lambda", 0.0))
+            loss = loss + (lam * loss_cte)
+            self.log('train_loss_cte', loss_cte, prog_bar=False, on_step=True, on_epoch=False, sync_dist=True)
+            self.log('train_loss_cte_weighted', lam * loss_cte, prog_bar=False, on_step=True, on_epoch=False, sync_dist=True)
         self.log('train_loss', loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True)
         return loss
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
-        inputs, targets, targets_prev = batch
-        lm_logits = self.forward(
-            inputs=inputs, 
-            labels=targets, 
-            targets_prev=targets_prev
-        )
+        if len(batch) == 4:
+            inputs, targets, targets_prev, cte_family_id = batch
+        else:
+            inputs, targets, targets_prev = batch
+            cte_family_id = None
+
+        out = self.forward(inputs=inputs, labels=targets, targets_prev=targets_prev, cte_family_id=cte_family_id)
+        if isinstance(out, tuple):
+            lm_logits, loss_cte = out
+        else:
+            lm_logits, loss_cte = out, None
 
         if targets is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
             loss = loss_fct(
                 lm_logits.view(-1, lm_logits.size(-1)), targets.view(-1)
             )
+        if loss_cte is not None:
+            lam = float(getattr(self.config, "cte_lambda", 0.0))
+            loss = loss + (lam * loss_cte)
+            self.log('val_loss_cte', loss_cte, prog_bar=False, on_step=False, on_epoch=True, sync_dist=True)
+            self.log('val_loss_cte_weighted', lam * loss_cte, prog_bar=False, on_step=False, on_epoch=True, sync_dist=True)
         
         self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True)
 

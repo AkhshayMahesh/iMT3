@@ -4,6 +4,40 @@ Code accompanying paper: [MR-MT3: Memory Retaining Multi-Track Music Transcripti
 
 ## Setup steps
 
+### Recommended (conda env file)
+
+```
+export CONDA_NO_PLUGINS=true
+export CONDA_SOLVER=classic
+conda --no-plugins env create --solver classic -f environment.yml -p ./.conda/envs/mrmt3
+conda activate ./.conda/envs/mrmt3
+python -m pip install --upgrade pip
+python -m pip install -U "setuptools<81" wheel
+python -m pip install -r requirements.txt -c constraints.txt || \
+  python -m pip install --use-deprecated=legacy-resolver -r requirements.txt -c constraints.txt
+```
+
+Or run:
+
+```
+./setup.sh
+```
+
+If your `pip install` is slow due to dependency backtracking (common with `t5/seqio`), this repo includes `constraints.txt` and `setup.sh` uses it automatically.
+
+### Optional: TF spectral ops (DDSP)
+
+This repo defaults to the PyTorch/librosa spectrogram path. `ddsp` is only needed if you set `use_tf_spectral_ops=True` (mainly for evaluating checkpoints that require TF spectral ops).
+
+If you need it, install it after the environment is ready:
+
+```
+conda activate ./.conda/envs/mrmt3
+python -m pip install ddsp
+```
+
+### Manual (as in the paper)
+
 ```
 conda create --name mrmt3 python==3.10 -y
 conda activate mrmt3
@@ -18,7 +52,7 @@ python -m pip install einops==0.4.1
 python -m pip install ddsp                                 <- changed : Dont specify version, when installing python 3.10, Because of llvmlite, numba
 python -m pip install tensorflow==2.11
 python -m pip install tensorflow-text==2.11
-python -m pip install protobuf==3.20
+python -m pip install protobuf==3.19.6                     <- changed : tensorflow==2.11 requires protobuf<3.20
 python -m pip install numpy==1.23.5                        <- changed : Scipy requires numpy>=1.23.5
 python -m pip install hydra-core==1.2.0
 python -m pip install typing_extensions
