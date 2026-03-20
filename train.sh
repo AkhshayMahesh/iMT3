@@ -20,7 +20,7 @@ HYDRA_FULL_ERROR=1 OMP_NUM_THREADS=1 python3 train.py \
 HYDRA_FULL_ERROR=1 OMP_NUM_THREADS=1 python3 train.py \
     --config-path="config" \
     --config-name="config_slakh_segmem" \
-    devices=[0,1] \
+    devices=[0] \
     hydra/job_logging=disabled \
     model="MT3NetSegMemV2WithPrev" \
     dataset="SlakhPrev" \

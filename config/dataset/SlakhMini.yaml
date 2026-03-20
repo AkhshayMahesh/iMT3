@@ -1,30 +1,31 @@
 train:
-  _target_: dataset.dataset_2_random_segmem_prev.SlakhDatasetWithPrevSegmem
-  root_dir: "/data/slakh2100_flac_redux/train"
+  _target_: dataset.dataset_2_random_segmem_prev_augment.SlakhDatasetWithPrevSegmemAugment
+  root_dir: "/home/mt3/documents/iMT3/data/slakh2100_flac_redux_baby/train"
   mel_length: ${mel_length}
   event_length: ${event_length}
   midi_folder: MIDI
   inst_filename: inst_names.json
-  audio_filename: mix.wav
+  audio_filename: mix_16k.wav
   num_rows_per_batch: ${num_rows_per_batch}
   split_frame_length: ${split_frame_length}
   is_deterministic: ${dataset_is_deterministic}
   is_randomize_tokens: ${dataset_is_randomize_tokens}
   use_tf_spectral_ops: ${dataset_use_tf_spectral_ops}
+  prev_augment_frames: ${dataset_prev_augment_frames}
 val:
-  _target_: dataset.dataset_2_random_segmem_prev.SlakhDatasetWithPrevSegmem
-  root_dir: "${oc.env:MRMT3_SLAKH_DIR}"
+  _target_: dataset.dataset_2_random_segmem_prev_augment.SlakhDatasetWithPrevSegmemAugment
+  root_dir: "/home/mt3/documents/iMT3/data/slakh2100_flac_redux_baby/validation"
   mel_length: ${mel_length}
   event_length: ${event_length}
   midi_folder: MIDI
   inst_filename: inst_names.json
-  audio_filename: mix.wav
+  audio_filename: mix_16k.wav   
   num_rows_per_batch: ${num_rows_per_batch}
   split_frame_length: ${split_frame_length}
   is_deterministic: ${dataset_is_deterministic}
   is_randomize_tokens: ${dataset_is_randomize_tokens}
   use_tf_spectral_ops: ${dataset_use_tf_spectral_ops}
+  prev_augment_frames: ${dataset_prev_augment_frames}
 test:
-  root_dir: "${oc.env:MRMT3_SLAKH_DIR}"
-collate_fn: dataset.dataset_2_random_segmem_prev.collate_fn
-
+  root_dir: "/home/mt3/documents/iMT3/data/slakh2100_flac_redux_baby/test"
+collate_fn: dataset.dataset_2_random_segmem_prev_augment.collate_fn

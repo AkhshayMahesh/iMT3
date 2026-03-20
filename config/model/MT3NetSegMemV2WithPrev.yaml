@@ -26,3 +26,4 @@ config: # a hacky way to make this config works for T5 class
   segmem_num_layers: 1
   segmem_length: ${model_segmem_length}
   use_cache: False
+  cte_lambda: 1.0

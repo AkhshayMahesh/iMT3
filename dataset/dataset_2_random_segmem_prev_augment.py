@@ -78,7 +78,8 @@ class SlakhDatasetWithPrevSegmemAugment(SlakhDatasetWithPrevSegmem):
         return new_row
     
     def __getitem__(self, idx):
-        ns, audio, inst_names = self._preprocess_inputs(self.df[idx])
+        df_row = self.df[idx]
+        ns, audio, inst_names = self._preprocess_inputs(df_row)
         
         row = self._tokenize(ns, audio, inst_names)
 
@@ -86,7 +87,7 @@ class SlakhDatasetWithPrevSegmemAugment(SlakhDatasetWithPrevSegmem):
         # use `length = self.mel_length` in `_split_frame`:
         rows = self._split_frame(row, length=self.split_frame_length)
         
-        inputs, targets, targets_prev, frame_times, num_insts = [], [], [], [], []
+        inputs, targets, targets_prev, cte_family_ids = [], [], [], []
         if len(rows) > self.num_rows_per_batch:
             if self.is_deterministic:
                 start_idx = 2
@@ -94,6 +95,8 @@ class SlakhDatasetWithPrevSegmemAugment(SlakhDatasetWithPrevSegmem):
                 start_idx = random.randint(0, len(rows) - self.num_rows_per_batch)
             rows = rows[start_idx : start_idx + self.num_rows_per_batch]
         
+        track_families = self._track_families_from_metadata(df_row["audio_path"])
+
         for j, row in enumerate(rows):
             row = self._random_chunk(row)
             row = self._extract_target_sequence_with_indices(row, self.tie_token)
@@ -119,7 +122,18 @@ class SlakhDatasetWithPrevSegmemAugment(SlakhDatasetWithPrevSegmem):
             targets.append(row["targets"])
             targets_prev.append(row["targets_prev"]) 
 
-        return torch.stack(inputs), torch.stack(targets), torch.stack(targets_prev)
+            if self.is_deterministic:
+                fam = track_families[0]
+            else:
+                fam = random.choice(track_families)
+            cte_family_ids.append(fam)
+
+        return (
+            torch.stack(inputs),
+            torch.stack(targets),
+            torch.stack(targets_prev),
+            torch.tensor(cte_family_ids, dtype=torch.long),
+        )
 
 
 def collate_fn(lst):

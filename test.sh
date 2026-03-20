@@ -10,7 +10,7 @@ python3 test.py \
     eval.midi_dir="../../../data/slakh2100_flac_redux_baby/test" \
     hydra/job_logging=disabled \
     eval.is_sanity_check=True   \
-    eval.eval_first_n_examples=20 \
+    eval.eval_first_n_examples=1 \
     eval.contiguous_inference=False \
     eval.use_tf_spectral_ops=False \
     +eval.load_weights_strict=False \
@@ -95,7 +95,7 @@ python3 test.py \
     --config-dir="config" \
     --config-name="config_slakh_segmem" \
     model="MT3NetSegMemV2WithPrev" \
-    path="../../../pretrained/exp_segmemV2_prev_context\=64_prevaug_frame\=3.ckpt" \
+    path="../../../pretrained/epoch\=39-val_loss\=7.3440.ckpt" \
     model_segmem_length=64 \
     eval.eval_dataset="Slakh" \
     eval.exp_tag_name="slakh_mt3_official" \
