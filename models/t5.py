@@ -576,8 +576,12 @@ class T5Stack(T5PreTrainedModel):
             if encoder_attention_mask is None:
                 encoder_attention_mask = torch.ones(
                     encoder_hidden_shape, device=inputs_embeds.device)
-            encoder_extended_attention_mask = self.invert_attention_mask(
-                encoder_attention_mask)
+            # Patch invert_attention_mask local issue
+            if encoder_attention_mask.dim() == 4:
+                encoder_extended_attention_mask = encoder_attention_mask
+            else:
+                encoder_extended_attention_mask = self.invert_attention_mask(
+                    encoder_attention_mask)
         else:
             encoder_extended_attention_mask = None
 

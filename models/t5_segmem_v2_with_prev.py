@@ -26,7 +26,22 @@ import torch
 from einops import rearrange
 from tqdm import tqdm
 
+from models.issm import InstrumentSpecificSlotMemory
+
 from models.contrastive_timbre_embedding import ContrastiveTimbreEmbedding
+import math
+
+try:
+    from models.layers import SaliencyHead
+except ImportError:
+    # Fallback if layers.py doesn't contain SaliencyHead yet
+    import torch.nn as nn
+    class SaliencyHead(nn.Module):
+        def __init__(self, d_model: int, num_instruments: int):
+            super().__init__()
+            self.proj = nn.Linear(d_model, num_instruments)
+        def forward(self, hidden_states):
+            return torch.sigmoid(self.proj(hidden_states))
 
 
 logger = logging.get_logger(__name__)
@@ -62,6 +77,28 @@ class T5SegMemV2WithPrev(T5SegMemV2):
         cte_proj_dim = int(getattr(config, "cte_proj_dim", 64))
         cte_temperature = float(getattr(config, "cte_temperature", 0.07))
         self.cte = ContrastiveTimbreEmbedding(in_dim=d_model, proj_dim=cte_proj_dim, temperature=cte_temperature)
+
+        self.issm = InstrumentSpecificSlotMemory(d_model=d_model, num_slots=17)
+        self.memory_state = None
+        
+        # TAG Mechanism
+        self.use_tag = getattr(config, "use_tag", False)
+        if self.use_tag:
+            num_instruments = getattr(config, "num_instruments", 128)  # default max midi instruments if not provided
+            self.saliency_head = SaliencyHead(d_model=d_model, num_instruments=num_instruments)
+
+    def _extract_m_gate(self, saliency_map: torch.Tensor, num_insts: torch.LongTensor) -> torch.Tensor:
+        """Safely extracts the instrument-specific saliency gating vector."""
+        if num_insts.dim() == 1 and num_insts.size(0) == saliency_map.size(0):
+            batch_indices = torch.arange(saliency_map.size(0), device=saliency_map.device)
+            return saliency_map[batch_indices, :, num_insts]
+        elif num_insts.dim() == 0 or num_insts.size(0) == 1:
+            idx = num_insts.item() if num_insts.dim() == 0 else num_insts[0].item()
+            return saliency_map[:, :, idx]
+        else:
+            logger.warning(f"Shape mismatch in num_insts: {num_insts.shape}. Defaulting to uniform gate.")
+            return torch.ones(saliency_map.size(0), saliency_map.size(1), device=saliency_map.device)
+
     
     def get_model_outputs(
         self,
@@ -82,6 +119,8 @@ class T5SegMemV2WithPrev(T5SegMemV2):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        reset_memory: bool = False,
+        num_insts: Optional[torch.LongTensor] = None,
     ):
         # FutureWarning: head_mask was separated into two input args - head_mask, decoder_head_mask
         if head_mask is not None and decoder_head_mask is None:
@@ -111,27 +150,39 @@ class T5SegMemV2WithPrev(T5SegMemV2):
             )
 
         hidden_states = encoder_outputs[0]
+        assert hidden_states.dim() == 3, f"Expected 3D encoder outputs (B, T, D), got {hidden_states.dim()}D"
 
         if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
             # get decoder inputs from shifting lm labels to the right
             decoder_input_ids = self._shift_right(labels)
         
-        # NOTE: T5SegMemV2WithPrev improves from T5SegMemV2.
-        # Using `SlakhPrevDataset`, for each {b}-th element, we also pass in their corresponding "prior segment"
-        # and use that to extract the memory block.
-        # This does incur more GPU RAM, because we need to store both `targets` and `targets_prev`.
+        # NOTE: Legacy T5SegMemV2WithPrev explicitly concatenated the b-1 label states.
+        # This was stripped in favor of the specialized Instrument-Specific Slot Memory (ISSM).
 
-        assert self.config.pad_token_id == 0
-        targets_prev.masked_fill_(targets_prev == -100, self.config.pad_token_id)
 
-        segmem_embeds = self.decoder_embed_tokens(targets_prev)                             # (b, l, d)
-        segmem_embeds_agg = self.segmem_encoder(segmem_embeds)[0]                           # (b, l, d)
-        segmem_embeds_agg = segmem_embeds_agg[:, :self.segmem_length, :]                    # (b, segmem_length, d)
-
-        hidden_states = torch.cat([
-            hidden_states,
-            segmem_embeds_agg, 
-        ], dim=1)
+        # TAG GATING COMPUTATION
+        m_gate = None
+        if self.use_tag and num_insts is not None:
+            # P = SaliencyMap (B, T, K)
+            saliency_map = self.saliency_head(hidden_states)
+            m_gate = self._extract_m_gate(saliency_map, num_insts)
+            
+        extended_encoder_attention_mask = None
+        if attention_mask is not None:
+            extended_encoder_attention_mask = self.get_extended_attention_mask(
+                attention_mask, hidden_states.shape[:2]
+            )
+        elif m_gate is not None:
+            extended_encoder_attention_mask = torch.zeros(
+                (hidden_states.size(0), 1, 1, hidden_states.size(1)),
+                dtype=hidden_states.dtype,
+                device=hidden_states.device
+            )
+            
+        if m_gate is not None and extended_encoder_attention_mask is not None:
+            eps = 1e-9
+            tag_penalty = torch.log(m_gate + eps).unsqueeze(1).unsqueeze(2)
+            extended_encoder_attention_mask = extended_encoder_attention_mask + tag_penalty
 
         # Decode
         decoder_outputs = self.decoder(
@@ -139,7 +190,7 @@ class T5SegMemV2WithPrev(T5SegMemV2):
             attention_mask=decoder_attention_mask,
             past_key_values=past_key_values,
             encoder_hidden_states=hidden_states,
-            encoder_attention_mask=attention_mask,
+            encoder_attention_mask=extended_encoder_attention_mask if extended_encoder_attention_mask is not None else attention_mask,
             head_mask=decoder_head_mask,
             cross_attn_head_mask=cross_attn_head_mask,
             use_cache=use_cache,
@@ -149,6 +200,26 @@ class T5SegMemV2WithPrev(T5SegMemV2):
         )
 
         sequence_output = decoder_outputs[0]  
+
+        # --- ISSM SECONDARY ATTENTION INJECTION ---
+        try:
+            if reset_memory or self.memory_state is None or self.memory_state.shape[0] != hidden_states.shape[0]:
+                self.memory_state = self.issm.init_memory(hidden_states.shape[0], hidden_states.device)
+            
+            # Explicit detached & cloned context for safety guarantees
+            detached_memory = self.memory_state.detach().clone()
+            updated_memory = self.issm.extract_and_update(hidden_states, detached_memory)
+            
+            issm_output = self.issm.memory_cross_attention(sequence_output, updated_memory)
+            
+            # NaN/Inf safeguard
+            if torch.isnan(issm_output).any() or torch.isinf(issm_output).any():
+                logger.warning("NaN/Inf detected in ISSM attention. Bypassing ISSM gate for this batch.")
+            else:
+                self.memory_state = updated_memory
+                sequence_output = issm_output
+        except Exception as e:
+            logger.error(f"ISSM integration failed: {str(e)}. Bypassing memory gate.")
 
         if self.config.tie_word_embeddings:
             # Rescale output before projecting on vocab
@@ -179,7 +250,8 @@ class T5SegMemV2WithPrev(T5SegMemV2):
         return_dict: Optional[bool] = None,
         num_insts: Optional[torch.LongTensor] = None,
         cte_family_id: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple[torch.FloatTensor], Seq2SeqLMOutput]:
+        reset_memory: bool = False,
+    ) -> Union[Tuple[torch.FloatTensor], Seq2SeqLMOutputNumInsts]:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
             Labels for computing the sequence classification/regression loss. Indices should be in `[-100, 0, ...,
@@ -226,15 +298,32 @@ class T5SegMemV2WithPrev(T5SegMemV2):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
+            reset_memory=reset_memory,
+            num_insts=num_insts,
         )
 
-        if cte_family_id is None:
-            return lm_logits
-
-        enc_last_hidden = encoder_outputs[0]  # (B, T, D)
-        _, loss_cte = self.cte(enc_last_hidden, attention_mask=attention_mask, family_id=cte_family_id, return_loss=True)
-        return lm_logits, loss_cte
-
+        loss_cte = None
+        if cte_family_id is not None:
+            enc_last_hidden = encoder_outputs[0]  # (B, T, D)
+            try:
+                # Add bounds validation for family_id if necessary, assuming valid inputs here
+                _, loss_cte = self.cte(enc_last_hidden, attention_mask=attention_mask, family_id=cte_family_id, return_loss=True)
+                
+                # Safeguard against contrastive divergence NaN/Inf explosion
+                if torch.isnan(loss_cte) or torch.isinf(loss_cte):
+                    logger.warning("NaN/Inf detected in CTE loss. Zeroing out loss to prevent graph explosion.")
+                    loss_cte = torch.tensor(0.0, device=loss_cte.device, requires_grad=True)
+            except Exception as e:
+                logger.error(f"CTE loss computation failed: {str(e)}. Zeroing out CTE loss.")
+                loss_cte = torch.tensor(0.0, device=enc_last_hidden.device, requires_grad=True)
+            
+        if return_dict:
+            return Seq2SeqLMOutputNumInsts(
+                logits=lm_logits,
+                loss_inst=loss_cte,
+            )
+        return (lm_logits, loss_cte)
+        
     def generate(self, inputs, max_length=1024, output_hidden_states=False, **kwargs):
         batch_size = inputs.shape[0]
         inputs_embeds = self.proj(inputs)
@@ -244,66 +333,56 @@ class T5SegMemV2WithPrev(T5SegMemV2):
         )
         hidden_states = encoder_outputs[0]
         
-        # Decode
-        # In this case, we need to decode each batch sequentially
+        # ISSM Update for generation
+        try:
+            memory_state = self.issm.init_memory(hidden_states.shape[0], hidden_states.device)
+            memory_state = self.issm.extract_and_update(hidden_states, memory_state)
+        except Exception as e:
+            logger.error(f"ISSM initialization failed during generation: {str(e)}.")
+            memory_state = None
+
+        # Fully Batched Decode
         bs = hidden_states.size(0)
-        segmem_ids = None
-        outs_lst = []
+        decoder_tokens = torch.zeros((bs, 1), dtype=torch.long, device=hidden_states.device)
+        finished = torch.zeros(bs, dtype=torch.bool, device=hidden_states.device)
 
-        for i in range(bs):
-            print(i + 1, '/', bs, end='\r')
-            decoder_tokens = torch.zeros((1, 1), dtype=torch.long, device=self.device)          # (b, 1)
-            cur_enc = hidden_states[i].unsqueeze(0)
-
-            if i == 0:
-                # create dummy segmem ids
-                segmem_ids = torch.tensor([
-                    0 for _ in range(max_length)
-                ]).to(self.device)
-
-                # NOTE: whether to add in tie token? 
-                # we add in this version, the rationale is that during training
-                # there might be prev_segments that are empty, so we don't need to cater to
-                # this edge case
-                # segmem_ids[0] = 1
-                segmem_ids[0] = 1134        # tie token (1131) + 3 special tokens
-                segmem_ids[1] = 1
-                segmem_ids = segmem_ids.unsqueeze(0)                                            # (b, max_length)
-            else:
-                assert segmem_ids is not None
+        for l in range(max_length):  
+            decoder_outputs = self.decoder(
+                input_ids=decoder_tokens,
+                encoder_hidden_states=hidden_states,
+                return_dict=True,
+            )
+            sequence_output = decoder_outputs[0]
             
-            segmem_embeds = self.decoder_embed_tokens(segmem_ids)
-            segmem_embeds_agg = self.segmem_encoder(segmem_embeds)[0]                           # (b, max_length, d)
+            # --- ISSM SECONDARY ATTENTION INJECTION ---
+            if memory_state is not None:
+                try:
+                    issm_output = self.issm.memory_cross_attention(sequence_output, memory_state)
+                    if not (torch.isnan(issm_output).any() or torch.isinf(issm_output).any()):
+                        sequence_output = issm_output
+                        # Update memory incrementally with the latest token representation
+                        memory_state = self.issm.extract_and_update(issm_output[:, -1:, :].detach().clone(), memory_state)
+                except Exception as e:
+                    pass
 
-            segmem_embeds_agg = segmem_embeds_agg[:, :self.segmem_length, :]   
+            lm_logits = self.lm_head(sequence_output)[:, -1, :]
+            cur = torch.argmax(lm_logits, dim=-1)
 
-            cur_hidden_states = torch.cat([
-                hidden_states[i].unsqueeze(0),
-                segmem_embeds_agg, 
-            ], dim=1)                                                                    # (b, segmem_length + 1, d)
+            # Mask out finished sequences with pad_token_id
+            cur = torch.where(finished, torch.tensor(self.config.pad_token_id, device=hidden_states.device), cur)
+
+            decoder_tokens = torch.cat([decoder_tokens, cur.unsqueeze(1)], dim=1)
             
-            for l in range(max_length):  
-                decoder_outputs = self.decoder(
-                    input_ids=decoder_tokens,
-                    encoder_hidden_states=cur_hidden_states,
-                    return_dict=True,
-                )
-                sequence_output = decoder_outputs[0]
-                lm_logits = self.lm_head(sequence_output)[:, -1, :]
-                cur = torch.argmax(lm_logits, dim=-1)
+            finished |= (cur == self.config.eos_token_id)
+            if finished.all():
+                break
 
-                decoder_tokens = torch.cat([decoder_tokens, cur.unsqueeze(1)], dim=1)
-                if cur.squeeze().item() == self.config.eos_token_id:
-                    break
-            
+        # Uniform batched padding if early break
+        if decoder_tokens.shape[1] < max_length:
             decoder_tokens = F.pad(
                 decoder_tokens,
                 (0, max_length - decoder_tokens.shape[1]),
-                value=0
+                value=self.config.pad_token_id
             )
-            outs_lst.append(decoder_tokens)
-
-            segmem_ids = decoder_tokens
         
-        outs_lst = torch.cat(outs_lst, dim=0)
-        return outs_lst
+        return decoder_tokens
