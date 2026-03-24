@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, Optional, Sequence, Union
+from typing import Optional, Sequence, Union
 
 import torch
 import torch.nn as nn
@@ -36,12 +35,14 @@ def _require_yaml() -> None:
         ) from _YAML_IMPORT_ERROR
 
 
-@lru_cache(maxsize=8192)
+_metadata_cache: dict[str, dict] = {}
+
 def _load_slakh_metadata(metadata_yaml_path: str) -> dict:
-    _require_yaml()
-    meta_txt = Path(metadata_yaml_path).read_text()
-    meta = yaml.safe_load(meta_txt)  # type: ignore[misc]
-    return meta or {}
+    if metadata_yaml_path not in _metadata_cache:
+        _require_yaml()
+        meta_txt = Path(metadata_yaml_path).read_text()
+        _metadata_cache[metadata_yaml_path] = yaml.safe_load(meta_txt) or {}
+    return _metadata_cache[metadata_yaml_path]
 
 
 def slakh_family_id_from_metadata(
@@ -177,7 +178,6 @@ class ContrastiveTimbreEmbedding(nn.Module):
         if b < 2:
             return z.new_zeros(())
 
-        z = F.normalize(z, dim=-1)
         logits = (z @ z.transpose(0, 1)) / self.temperature  # [B, B]
 
         device = z.device
@@ -195,6 +195,7 @@ class ContrastiveTimbreEmbedding(nn.Module):
         # log_den[i] = log sum_{a != i} exp(logits[i, a])
         log_den = torch.logsumexp(logits, dim=1)  # [B]
         log_prob = logits - log_den.unsqueeze(1)  # [B, B]
+        log_prob = log_prob.masked_fill(diag, 0.0)
 
         # SupCon: mean over positives per anchor, then mean across valid anchors
         loss_per_anchor = -(log_prob * pos_mask.to(dtype=log_prob.dtype)).sum(dim=1) / pos_count.clamp_min(1).to(

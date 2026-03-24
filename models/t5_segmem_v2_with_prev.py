@@ -346,14 +346,14 @@ class T5SegMemV2WithPrev(T5SegMemV2):
         decoder_tokens = torch.zeros((bs, 1), dtype=torch.long, device=hidden_states.device)
         finished = torch.zeros(bs, dtype=torch.bool, device=hidden_states.device)
 
-        for l in range(max_length):  
+        for l in range(max_length):
             decoder_outputs = self.decoder(
                 input_ids=decoder_tokens,
                 encoder_hidden_states=hidden_states,
                 return_dict=True,
             )
             sequence_output = decoder_outputs[0]
-            
+
             # --- ISSM SECONDARY ATTENTION INJECTION ---
             if memory_state is not None:
                 try:
@@ -372,7 +372,7 @@ class T5SegMemV2WithPrev(T5SegMemV2):
             cur = torch.where(finished, torch.tensor(self.config.pad_token_id, device=hidden_states.device), cur)
 
             decoder_tokens = torch.cat([decoder_tokens, cur.unsqueeze(1)], dim=1)
-            
+
             finished |= (cur == self.config.eos_token_id)
             if finished.all():
                 break
