@@ -24,3 +24,4 @@ config: # a hacky way to make this config works for T5 class
   encoder_vocab_size: 1024
   xl_context_length: 2048
   use_cache: False
+  cte_lambda: 0.1

@@ -7,6 +7,8 @@ from transformers import T5Config
 from models.t5_segmem_v2_with_prev import T5SegMemV2WithPrev
 from utils import get_cosine_schedule_with_warmup
 from tasks.mt3_base import MT3Base
+import os
+from utils_visualize import plot_latent_embeddings
 
 
 class MT3NetSegMemV2WithPrev(MT3Base):
@@ -18,6 +20,8 @@ class MT3NetSegMemV2WithPrev(MT3Base):
             segmem_num_layers=self.config.segmem_num_layers,
             segmem_length=self.config.segmem_length,
         )
+        self.val_z = []
+        self.val_labels = []
 
     def forward(self, *args, **kwargs):
         return self.model.forward(*args, **kwargs)
@@ -31,7 +35,10 @@ class MT3NetSegMemV2WithPrev(MT3Base):
 
         out = self.forward(inputs=inputs, labels=targets, targets_prev=targets_prev, cte_family_id=cte_family_id)
         if isinstance(out, tuple):
-            lm_logits, loss_cte = out
+            if len(out) == 3:
+                lm_logits, loss_cte, _ = out
+            else:
+                lm_logits, loss_cte = out
         else:
             lm_logits, loss_cte = out, None
 
@@ -58,9 +65,13 @@ class MT3NetSegMemV2WithPrev(MT3Base):
 
         out = self.forward(inputs=inputs, labels=targets, targets_prev=targets_prev, cte_family_id=cte_family_id)
         if isinstance(out, tuple):
-            lm_logits, loss_cte = out
+            if len(out) == 3:
+                lm_logits, loss_cte, z = out
+            else:
+                lm_logits, loss_cte = out
+                z = None
         else:
-            lm_logits, loss_cte = out, None
+            lm_logits, loss_cte, z = out, None, None
 
         if targets is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
@@ -73,7 +84,33 @@ class MT3NetSegMemV2WithPrev(MT3Base):
             self.log('val_loss_cte', loss_cte, prog_bar=False, on_step=False, on_epoch=True, sync_dist=True)
             self.log('val_loss_cte_weighted', lam * loss_cte, prog_bar=False, on_step=False, on_epoch=True, sync_dist=True)
         
+        if z is not None and cte_family_id is not None:
+            self.val_z.append(z.detach().cpu())
+            self.val_labels.append(cte_family_id.detach().cpu())
+
         self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True)
+
+    def on_validation_epoch_end(self):
+        super().on_validation_epoch_end()
+        if len(self.val_z) > 0:
+            # Concatenate all gathered embeddings and labels
+            embeddings = torch.cat(self.val_z, dim=0)
+            labels = torch.cat(self.val_labels, dim=0)
+            save_dir = self.logger.log_dir if self.logger else "."
+            save_path = os.path.join(save_dir, f"cte_embeddings_epoch_{self.current_epoch}.png")
+            
+            # Plot and log to tensorboard
+            plot_latent_embeddings(
+                embeddings=embeddings, 
+                labels=labels, 
+                logger=self.logger, 
+                current_epoch=self.current_epoch, 
+                save_path=save_path
+            )
+            
+            # Clear the lists for the next validation epoch
+            self.val_z.clear()
+            self.val_labels.clear()
 
     def configure_optimizers(self):
         optimizer = AdamW(self.model.parameters(), self.optim_cfg.lr)

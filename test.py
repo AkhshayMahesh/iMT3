@@ -99,6 +99,7 @@ def main(cfg):
             cfg.path,
             config=cfg.model.config,
             optim_cfg=cfg.optim,
+            strict=False,
         )
         model = pl.model
     else:

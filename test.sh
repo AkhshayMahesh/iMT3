@@ -95,7 +95,7 @@ python3 test.py \
     --config-dir="config" \
     --config-name="config_slakh_segmem" \
     model="MT3NetSegMemV2WithPrev" \
-    path="../../../pretrained/epoch\=39-val_loss\=7.3440.ckpt" \
+    path="../../../pretrained/imt3.ckpt" \
     model_segmem_length=64 \
     eval.eval_dataset="Slakh" \
     eval.exp_tag_name="slakh_mt3_official" \

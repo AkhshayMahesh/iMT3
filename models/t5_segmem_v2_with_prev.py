@@ -303,12 +303,12 @@ class T5SegMemV2WithPrev(T5SegMemV2):
         )
 
         loss_cte = None
+        z = None
         if cte_family_id is not None:
             enc_last_hidden = encoder_outputs[0]  # (B, T, D)
             try:
-                # Add bounds validation for family_id if necessary, assuming valid inputs here
-                _, loss_cte = self.cte(enc_last_hidden, attention_mask=attention_mask, family_id=cte_family_id, return_loss=True)
-                
+                z, loss_cte = self.cte(enc_last_hidden, attention_mask=attention_mask, family_id=cte_family_id, return_loss=True)
+
                 # Safeguard against contrastive divergence NaN/Inf explosion
                 if torch.isnan(loss_cte) or torch.isinf(loss_cte):
                     logger.warning("NaN/Inf detected in CTE loss. Zeroing out loss to prevent graph explosion.")
@@ -316,14 +316,13 @@ class T5SegMemV2WithPrev(T5SegMemV2):
             except Exception as e:
                 logger.error(f"CTE loss computation failed: {str(e)}. Zeroing out CTE loss.")
                 loss_cte = torch.tensor(0.0, device=enc_last_hidden.device, requires_grad=True)
-            
+
         if return_dict:
             return Seq2SeqLMOutputNumInsts(
                 logits=lm_logits,
                 loss_inst=loss_cte,
             )
-        return (lm_logits, loss_cte)
-        
+        return (lm_logits, loss_cte, z)
     def generate(self, inputs, max_length=1024, output_hidden_states=False, **kwargs):
         batch_size = inputs.shape[0]
         inputs_embeds = self.proj(inputs)

@@ -9,9 +9,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 try:
-    import yaml  # type: ignore
-except Exception as e:  # pragma: no cover
-    yaml = None  # type: ignore[assignment]
+    import yaml 
+except Exception as e:
+    yaml = None
     _YAML_IMPORT_ERROR = e
 
 
@@ -28,7 +28,7 @@ class SlakhStemLabel:
 
 
 def _require_yaml() -> None:
-    if yaml is None:  # pragma: no cover
+    if yaml is None:
         raise ImportError(
             "PyYAML is required to parse Slakh metadata.yaml files. "
             "Install it (e.g. `pip install pyyaml`)."
