@@ -22,6 +22,8 @@ class MT3NetSegMemV2WithPrev(MT3Base):
         )
         self.val_z = []
         self.val_labels = []
+        self.train_z = []
+        self.train_labels = []
 
     def forward(self, *args, **kwargs):
         return self.model.forward(*args, **kwargs)
@@ -33,12 +35,17 @@ class MT3NetSegMemV2WithPrev(MT3Base):
             inputs, targets, targets_prev = batch
             cte_family_id = None
 
-        out = self.forward(inputs=inputs, labels=targets, targets_prev=targets_prev, cte_family_id=cte_family_id)
+        out = self.forward(inputs=inputs, labels=targets, targets_prev=targets_prev, cte_family_id=cte_family_id, num_insts=cte_family_id)
         if isinstance(out, tuple):
             if len(out) == 3:
-                lm_logits, loss_cte, _ = out
+                lm_logits, loss_cte, z = out
             else:
                 lm_logits, loss_cte = out
+                z = None
+        elif hasattr(out, 'logits'):
+            lm_logits = out.logits
+            loss_cte = getattr(out, 'loss_inst', None)
+            z = getattr(out, 'z', None)
         else:
             lm_logits, loss_cte = out, None
 
@@ -53,6 +60,11 @@ class MT3NetSegMemV2WithPrev(MT3Base):
             self.log('train_loss_cte', loss_cte, prog_bar=False, on_step=True, on_epoch=False, sync_dist=True)
             self.log('train_loss_cte_weighted', lam * loss_cte, prog_bar=False, on_step=True, on_epoch=False, sync_dist=True)
         self.log('train_loss', loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True)
+
+        if z is not None and cte_family_id is not None:
+            self.train_z.append(z.detach().cpu())
+            self.train_labels.append(cte_family_id.detach().cpu())
+
         return loss
 
     @torch.no_grad()
@@ -63,13 +75,17 @@ class MT3NetSegMemV2WithPrev(MT3Base):
             inputs, targets, targets_prev = batch
             cte_family_id = None
 
-        out = self.forward(inputs=inputs, labels=targets, targets_prev=targets_prev, cte_family_id=cte_family_id)
+        out = self.forward(inputs=inputs, labels=targets, targets_prev=targets_prev, cte_family_id=cte_family_id, num_insts=cte_family_id)
         if isinstance(out, tuple):
             if len(out) == 3:
                 lm_logits, loss_cte, z = out
             else:
                 lm_logits, loss_cte = out
                 z = None
+        elif hasattr(out, 'logits'):
+            lm_logits = out.logits
+            loss_cte = getattr(out, 'loss_inst', None)
+            z = getattr(out, 'z', None)
         else:
             lm_logits, loss_cte, z = out, None, None
 
@@ -111,6 +127,26 @@ class MT3NetSegMemV2WithPrev(MT3Base):
             # Clear the lists for the next validation epoch
             self.val_z.clear()
             self.val_labels.clear()
+
+    def on_train_epoch_end(self):
+        super().on_train_epoch_end()
+        if len(self.train_z) > 0:
+            embeddings = torch.cat(self.train_z, dim=0)
+            labels = torch.cat(self.train_labels, dim=0)
+            save_dir = self.logger.log_dir if self.logger else "."
+            save_path = os.path.join(save_dir, f"cte_train_embeddings_epoch_{self.current_epoch}.png")
+            
+            plot_latent_embeddings(
+                embeddings=embeddings, 
+                labels=labels, 
+                logger=self.logger, 
+                current_epoch=self.current_epoch, 
+                save_path=save_path
+            )
+            
+            self.train_z.clear()
+            self.train_labels.clear()
+
 
     def configure_optimizers(self):
         optimizer = AdamW(self.model.parameters(), self.optim_cfg.lr)

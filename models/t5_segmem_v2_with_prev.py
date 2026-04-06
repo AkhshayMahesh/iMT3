@@ -170,7 +170,7 @@ class T5SegMemV2WithPrev(T5SegMemV2):
         extended_encoder_attention_mask = None
         if attention_mask is not None:
             extended_encoder_attention_mask = self.get_extended_attention_mask(
-                attention_mask, hidden_states.shape[:2]
+                attention_mask, hidden_states.shape[:2], hidden_states.device
             )
         elif m_gate is not None:
             extended_encoder_attention_mask = torch.zeros(
@@ -180,7 +180,7 @@ class T5SegMemV2WithPrev(T5SegMemV2):
             )
             
         if m_gate is not None and extended_encoder_attention_mask is not None:
-            eps = 1e-9
+            eps = 1e-6
             tag_penalty = torch.log(m_gate + eps).unsqueeze(1).unsqueeze(2)
             extended_encoder_attention_mask = extended_encoder_attention_mask + tag_penalty
 
@@ -340,48 +340,65 @@ class T5SegMemV2WithPrev(T5SegMemV2):
             logger.error(f"ISSM initialization failed during generation: {str(e)}.")
             memory_state = None
 
-        # Fully Batched Decode
+        # Fully Batched Decode with native KV caching ($O(L \times D)$)
         bs = hidden_states.size(0)
-        decoder_tokens = torch.zeros((bs, 1), dtype=torch.long, device=hidden_states.device)
+        
+        # Initial step uses just the start token
+        decoder_input_ids = torch.ones((bs, 1), dtype=torch.long, device=hidden_states.device) * self.config.decoder_start_token_id
+        
+        # We will accumulate all generated tokens here
+        accumulated_tokens = decoder_input_ids.clone()
+        
         finished = torch.zeros(bs, dtype=torch.bool, device=hidden_states.device)
+        past_key_values = None
+
+        import torch.nn.functional as F
 
         for l in range(max_length):
             decoder_outputs = self.decoder(
-                input_ids=decoder_tokens,
+                input_ids=decoder_input_ids,
                 encoder_hidden_states=hidden_states,
+                past_key_values=past_key_values,
+                use_cache=True,
                 return_dict=True,
             )
-            sequence_output = decoder_outputs[0]
+            # When using cache, the sequence length of decoder_outputs is always 1!
+            sequence_output_last = decoder_outputs[0] 
+            past_key_values = decoder_outputs.past_key_values
 
             # --- ISSM SECONDARY ATTENTION INJECTION ---
             if memory_state is not None:
                 try:
-                    issm_output = self.issm.memory_cross_attention(sequence_output, memory_state)
+                    # Apply cross-attention over just the last generated hidden state
+                    issm_output = self.issm.memory_cross_attention(sequence_output_last, memory_state)
                     if not (torch.isnan(issm_output).any() or torch.isinf(issm_output).any()):
-                        sequence_output = issm_output
+                        sequence_output_last = issm_output
                         # Update memory incrementally with the latest token representation
-                        memory_state = self.issm.extract_and_update(issm_output[:, -1:, :].detach().clone(), memory_state)
+                        memory_state = self.issm.extract_and_update(issm_output.detach().clone(), memory_state)
                 except Exception as e:
                     pass
 
-            lm_logits = self.lm_head(sequence_output)[:, -1, :]
+            lm_logits = self.lm_head(sequence_output_last).squeeze(1)
             cur = torch.argmax(lm_logits, dim=-1)
 
             # Mask out finished sequences with pad_token_id
             cur = torch.where(finished, torch.tensor(self.config.pad_token_id, device=hidden_states.device), cur)
 
-            decoder_tokens = torch.cat([decoder_tokens, cur.unsqueeze(1)], dim=1)
+            accumulated_tokens = torch.cat([accumulated_tokens, cur.unsqueeze(1)], dim=1)
+            
+            # The next step processes ONLY the newly predicted token
+            decoder_input_ids = cur.unsqueeze(1)
 
             finished |= (cur == self.config.eos_token_id)
             if finished.all():
                 break
 
-        # Uniform batched padding if early break
-        if decoder_tokens.shape[1] < max_length:
-            decoder_tokens = F.pad(
-                decoder_tokens,
-                (0, max_length - decoder_tokens.shape[1]),
+        # Uniform batched padding if early break (keeping same return shape spec)
+        if accumulated_tokens.shape[1] < max_length:
+            accumulated_tokens = F.pad(
+                accumulated_tokens,
+                (0, max_length - accumulated_tokens.shape[1]),
                 value=self.config.pad_token_id
             )
         
-        return decoder_tokens
+        return accumulated_tokens

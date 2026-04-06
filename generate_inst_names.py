@@ -42,6 +42,6 @@ def main(root_path):
 
 
 if __name__ == '__main__':
-    main('/workspace/data/dataset/slakh2100_flac_redux/train')
-    main('/workspace/data/dataset/slakh2100_flac_redux/validation')
-    main('/workspace/data/dataset/slakh2100_flac_redux/test')
+    main('/mnt/e/archive/slakh2100_flac_redux/train')
+    main('/mnt/e/archive/slakh2100_flac_redux/validation')
+    main('/mnt/e/archive/slakh2100_flac_redux/test')

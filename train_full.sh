@@ -1,13 +1,13 @@
 #!/bin/bash
 
-echo "Starting training on mini dataset..."
+echo "Starting training on the full Slakh2100 dataset :o"
 
 HYDRA_FULL_ERROR=1 OMP_NUM_THREADS=1 python3 train.py \
     --config-path="config" \
     --config-name="config_slakh_segmem" \
     devices=[0] \
     model="MT3NetSegMemV2WithPrev" \
-    dataset="SlakhMini" \
+    dataset="SlakhFull" \
     dataset_use_tf_spectral_ops=False \
     dataset_is_randomize_tokens=True \
     split_frame_length=2000 \
@@ -18,6 +18,6 @@ HYDRA_FULL_ERROR=1 OMP_NUM_THREADS=1 python3 train.py \
     eval.eval_after_num_epoch=5 \
     eval.eval_first_n_examples=3 \
     eval.eval_per_epoch=2 \
-    eval.audio_dir="/home/mt3/documents/iMT3/data/slakh2100_flac_redux_baby/test/*/mix_16k.wav" \
-    eval.midi_dir="/home/mt3/documents/iMT3/data/slakh2100_flac_redux_baby/test/" \
+    eval.audio_dir="/mnt/e/archive/slakh2100_flac_redux/test/*/mix_16k.wav" \
+    eval.midi_dir="/mnt/e/archive/slakh2100_flac_redux/test/" \
     eval.contiguous_inference=True
