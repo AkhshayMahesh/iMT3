@@ -19,10 +19,10 @@ model_segmem_length: 4
 
 optim:
   lr: 2e-4
-  warmup_steps: 64500
+  warmup_steps: 6500
   num_epochs: ${num_epochs}
   num_steps_per_epoch: 1289   # TODO: this is not good practice. Ideally we can get this from dataloader.
-  min_lr: 1e-4
+  min_lr: 1e-5
 
 grad_accum: 1
 
@@ -40,7 +40,7 @@ modelcheckpoint:
   save_last: True
   save_top_k: -1
   save_weights_only: False
-  every_n_epochs: 10
+  every_n_epochs: 30
   filename: '{epoch}-{val_loss:.4f}'
 
 trainer:

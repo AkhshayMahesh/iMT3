@@ -50,6 +50,7 @@ logger = logging.get_logger(__name__)
 @dataclass
 class Seq2SeqLMOutputNumInsts(Seq2SeqLMOutput):
     loss_inst: Optional[torch.FloatTensor] = None
+    z: Optional[torch.FloatTensor] = None
 
 
 class T5SegMemV2WithPrev(T5SegMemV2):
@@ -321,6 +322,7 @@ class T5SegMemV2WithPrev(T5SegMemV2):
             return Seq2SeqLMOutputNumInsts(
                 logits=lm_logits,
                 loss_inst=loss_cte,
+                z=z,
             )
         return (lm_logits, loss_cte, z)
     def generate(self, inputs, max_length=1024, output_hidden_states=False, **kwargs):

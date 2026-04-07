@@ -34,5 +34,51 @@ python -m pip install -U "setuptools<81" wheel
 python -m pip install -r requirements.txt -c constraints.txt || \
   python -m pip install --use-deprecated=legacy-resolver -r requirements.txt -c constraints.txt
 
+# Install ddsp without its dependencies — the 'crepe' dep uses an old setup.py
+# that requires pkg_resources and fails to build on modern pip/setuptools.
+# We only need ddsp.spectral_ops.compute_logmel; crepe is not required.
+echo "Installing ddsp (no-deps) and patching crepe imports..."
+python -m pip install ddsp --no-deps
+
+# Patch ddsp/__init__.py: make 'losses' (which imports crepe) optional
+DDSP_INIT="$(python -c "import ddsp; import os; print(os.path.join(os.path.dirname(ddsp.__file__), '__init__.py'))")"
+"${ENV_PREFIX}/bin/python" - "${DDSP_INIT}" <<'PYEOF'
+import re, sys
+path = sys.argv[1]
+with open(path) as f:
+    src = f.read()
+old = "from ddsp import losses"
+new = ("try:\n"
+       "    from ddsp import losses\n"
+       "except ModuleNotFoundError:\n"
+       "    pass  # 'crepe' optional dependency not installed; losses module unavailable")
+if old in src:
+    with open(path, "w") as f:
+        f.write(src.replace(old, new))
+    print(f"Patched {path}")
+else:
+    print(f"Already patched or line not found in {path}")
+PYEOF
+
+# Patch ddsp/spectral_ops.py: make top-level 'import crepe' optional
+DDSP_SPECTRAL="$(python -c "import ddsp; import os; print(os.path.join(os.path.dirname(ddsp.__file__), 'spectral_ops.py'))")"
+"${ENV_PREFIX}/bin/python" - "${DDSP_SPECTRAL}" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    src = f.read()
+old = "import crepe\n"
+new = ("try:\n"
+       "    import crepe\n"
+       "except ModuleNotFoundError:\n"
+       "    crepe = None  # optional; only needed for compute_f0 and PretrainedCREPE\n")
+if old in src and "except ModuleNotFoundError" not in src:
+    with open(path, "w") as f:
+        f.write(src.replace(old, new, 1))
+    print(f"Patched {path}")
+else:
+    print(f"Already patched or line not found in {path}")
+PYEOF
+
 echo "Done. Next:"
 echo "  conda activate \"${ENV_PREFIX}\""
