@@ -1,6 +1,6 @@
 train:
   _target_: dataset.dataset_2_random_segmem_prev_augment.SlakhDatasetWithPrevSegmemAugment
-  root_dir: "/mnt/e/archive/slakh2100_flac_redux/train"
+  root_dir: "/home/skneural_net/archive/slakh2100_flac_redux/train"
   mel_length: ${mel_length}
   event_length: ${event_length}
   midi_folder: MIDI
@@ -14,7 +14,7 @@ train:
   prev_augment_frames: ${dataset_prev_augment_frames}
 val:
   _target_: dataset.dataset_2_random_segmem_prev_augment.SlakhDatasetWithPrevSegmemAugment
-  root_dir: "/mnt/e/archive/slakh2100_flac_redux/validation"
+  root_dir: "/home/skneural_net/archive/slakh2100_flac_redux/validation"
   mel_length: ${mel_length}
   event_length: ${event_length}
   midi_folder: MIDI
@@ -27,5 +27,5 @@ val:
   use_tf_spectral_ops: ${dataset_use_tf_spectral_ops}
   prev_augment_frames: ${dataset_prev_augment_frames}
 test:
-  root_dir: "/mnt/e/archive/slakh2100_flac_redux/test"
+  root_dir: "/home/skneural_net/archive/slakh2100_flac_redux/test"
 collate_fn: dataset.dataset_2_random_segmem_prev_augment.collate_fn

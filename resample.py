@@ -21,7 +21,7 @@ def func(fname):
 
 for item in ["train", "validation", "test"]:
     print(f"Settling {item}..")
-    dir = sorted(glob.glob(f"/mnt/e/archive/slakh2100_flac_redux/{item}/**/mix.flac"))
+    dir = sorted(glob.glob(f"/home/skneural_net/archive/slakh2100_flac_redux/{item}/**/mix.flac"))
     pbar = tqdm(total=len(dir))
 
 

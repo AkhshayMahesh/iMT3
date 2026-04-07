@@ -22,7 +22,7 @@ HYDRA_FULL_ERROR=1 OMP_NUM_THREADS=1 python3 train.py \
     eval.eval_after_num_epoch=5 \
     eval.eval_first_n_examples=3 \
     eval.eval_per_epoch=2 \
-    eval.audio_dir="/mnt/e/archive/slakh2100_flac_redux/test/*/mix_16k.wav" \
-    eval.midi_dir="/mnt/e/archive/slakh2100_flac_redux/test/" \
+    eval.audio_dir="/home/skneural_net/archive/slakh2100_flac_redux/test/*/mix_16k.wav" \
+    eval.midi_dir="/home/skneural_net/archive/slakh2100_flac_redux/test/" \
     eval.contiguous_inference=True \
     dataloader.train.num_workers=0

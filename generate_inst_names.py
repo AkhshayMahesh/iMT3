@@ -42,6 +42,6 @@ def main(root_path):
 
 
 if __name__ == '__main__':
-    main('/mnt/e/archive/slakh2100_flac_redux/train')
-    main('/mnt/e/archive/slakh2100_flac_redux/validation')
-    main('/mnt/e/archive/slakh2100_flac_redux/test')
+    main('/home/skneural_net/archive/slakh2100_flac_redux/train')
+    main('/home/skneural_net/archive/slakh2100_flac_redux/validation')
+    main('/home/skneural_net/archive/slakh2100_flac_redux/test')
