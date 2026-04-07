@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_NAME="${ENV_NAME:-mrmt3}"
+ENV_NAME="${ENV_NAME:-imt3}"
 ENV_PREFIX="${ENV_PREFIX:-"$(pwd)/.conda/envs/${ENV_NAME}"}"
 
 # Keep everything self-contained and writable.
@@ -41,8 +41,15 @@ echo "Installing ddsp (no-deps) and patching crepe imports..."
 python -m pip install ddsp --no-deps
 
 # Patch ddsp/__init__.py: make 'losses' (which imports crepe) optional
-DDSP_INIT="$(python -c "import ddsp; import os; print(os.path.join(os.path.dirname(ddsp.__file__), '__init__.py'))")"
-"${ENV_PREFIX}/bin/python" - "${DDSP_INIT}" <<'PYEOF'
+DDSP_DIR="$("${ENV_PREFIX}/bin/python" -m pip show ddsp | grep Location | awk '{print $2}')/ddsp"
+DDSP_INIT="$DDSP_DIR/__init__.py"
+
+if [ ! -f "$DDSP_INIT" ]; then
+    echo "Error: Could not find ddsp/__init__.py at $DDSP_INIT"
+    exit 1
+fi
+
+"${ENV_PREFIX}/bin/python" - "$DDSP_INIT" <<'PYEOF'
 import re, sys
 path = sys.argv[1]
 with open(path) as f:
@@ -61,8 +68,14 @@ else:
 PYEOF
 
 # Patch ddsp/spectral_ops.py: make top-level 'import crepe' optional
-DDSP_SPECTRAL="$(python -c "import ddsp; import os; print(os.path.join(os.path.dirname(ddsp.__file__), 'spectral_ops.py'))")"
-"${ENV_PREFIX}/bin/python" - "${DDSP_SPECTRAL}" <<'PYEOF'
+DDSP_SPECTRAL="$DDSP_DIR/spectral_ops.py"
+
+if [ ! -f "$DDSP_SPECTRAL" ]; then
+    echo "Error: Could not find ddsp/spectral_ops.py at $DDSP_SPECTRAL"
+    exit 1
+fi
+
+"${ENV_PREFIX}/bin/python" - "$DDSP_SPECTRAL" <<'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path) as f:
