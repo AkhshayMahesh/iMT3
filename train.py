@@ -131,7 +131,7 @@ def main(cfg):
         sampler=SequentialSampler(train_dataset),
         dataset=train_dataset,
         families_per_batch=8,
-        samples_per_family=2
+        samples_per_family=4
     )
     
     dataloader_train_kwargs = dict(cfg.dataloader.train)
