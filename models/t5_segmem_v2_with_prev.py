@@ -76,7 +76,7 @@ class T5SegMemV2WithPrev(T5SegMemV2):
         )
         d_model = getattr(config, "d_model", None) or getattr(self.config, "d_model")
         cte_proj_dim = int(getattr(config, "cte_proj_dim", 64))
-        cte_temperature = float(getattr(config, "cte_temperature", 0.07))
+        cte_temperature = float(getattr(config, "cte_temperature", 0.15))
         self.cte = ContrastiveTimbreEmbedding(in_dim=d_model, proj_dim=cte_proj_dim, temperature=cte_temperature)
 
         self.issm = InstrumentSpecificSlotMemory(d_model=d_model, num_slots=17)

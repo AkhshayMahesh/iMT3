@@ -108,7 +108,7 @@ class ContrastiveTimbreEmbedding(nn.Module):
         *,
         in_dim: int = 768,
         proj_dim: int = 64,
-        temperature: float = 0.07,
+        temperature: float = 0.15,
     ) -> None:
         super().__init__()
         self.temperature = float(temperature)
@@ -161,7 +161,7 @@ class ContrastiveTimbreEmbedding(nn.Module):
         Supervised Contrastive Loss (SupCon / generalized NT-Xent).
 
         Requirements satisfied:
-        - **Temperature**: self.temperature (default 0.07)
+        - **Temperature**: self.temperature (default 0.15)
         - **Boolean similarity mask [B,B]** based on `family_id`
         - **Multiple positives per anchor** supported
         - **LogSumExp** trick for numerical stability
