@@ -8,13 +8,14 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.callbacks import TQDMProgressBar
 from pytorch_lightning.loggers import TensorBoardLogger
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, SequentialSampler
 
 import torch
 import pytorch_lightning as pl
 
 import hydra
 from tasks.mt3_net import MT3Net
+from dataset.timbre_sampler import TimbreContrastiveBatchSampler
 
 class EpochMetricsLoggingCallback(pl.Callback):
     def __init__(self):
@@ -125,11 +126,23 @@ def main(cfg):
         **cfg.trainer
     )
 
+    train_dataset = hydra.utils.instantiate(cfg.dataset.train)
+    sampler = TimbreContrastiveBatchSampler(
+        sampler=SequentialSampler(train_dataset),
+        dataset=train_dataset,
+        families_per_batch=8,
+        samples_per_family=2
+    )
+    
+    dataloader_train_kwargs = dict(cfg.dataloader.train)
+    for conf_key in ["batch_size", "shuffle", "sampler", "drop_last"]:
+        dataloader_train_kwargs.pop(conf_key, None)
+
     train_loader = DataLoader(
-        hydra.utils.instantiate(cfg.dataset.train),
-        # SlakhDataset(**cfg.data.train), 
-        **cfg.dataloader.train,
-        collate_fn=hydra.utils.get_method(cfg.dataset.collate_fn)
+        train_dataset,
+        batch_sampler=sampler,
+        collate_fn=hydra.utils.get_method(cfg.dataset.collate_fn),
+        **dataloader_train_kwargs
     )
 
     val_loader = DataLoader(
